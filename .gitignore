@@ -17,7 +17,6 @@
 /node-termination-handler
 
 ### Go Patch ###
-/vendor/
 /Godeps/
 /build/
 /bin/
