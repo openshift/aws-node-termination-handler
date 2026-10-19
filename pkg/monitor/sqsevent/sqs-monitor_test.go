@@ -30,6 +30,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/autoscaling"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/sqs"
+	"github.com/aws/aws-sdk-go/service/sqs/sqsiface"
 )
 
 var spotItnEvent = sqsevent.EventBridgeEvent{
@@ -141,6 +142,40 @@ var rebalanceRecommendationEvent = sqsevent.EventBridgeEvent{
 	Detail: []byte(`{
 		"instance-id": "i-0b662ef9931388ba0"
 	}`),
+}
+
+type receiveMessageInputCapturer struct {
+	sqsiface.SQSAPI
+	input *sqs.ReceiveMessageInput
+}
+
+func (c *receiveMessageInputCapturer) ReceiveMessage(input *sqs.ReceiveMessageInput) (*sqs.ReceiveMessageOutput, error) {
+	c.input = input
+	return &sqs.ReceiveMessageOutput{}, nil
+}
+
+func TestMonitor_ReceiveMessageInput(t *testing.T) {
+	const (
+		queueURL         = "https://test-queue"
+		visibilityPeriod = int64(42)
+	)
+
+	sqsMock := &receiveMessageInputCapturer{}
+	sqsMonitor := sqsevent.SQSMonitor{
+		SQS:                        sqsMock,
+		QueueURL:                   queueURL,
+		SqsMsgVisibilityTimeoutSec: int(visibilityPeriod),
+	}
+
+	err := sqsMonitor.Monitor()
+	h.Ok(t, err)
+	h.Assert(t, sqsMock.input != nil, "ReceiveMessage should be called")
+	h.Equals(t, []*string{aws.String(sqs.MessageSystemAttributeNameSentTimestamp)}, sqsMock.input.MessageSystemAttributeNames)
+	h.Equals(t, []*string{aws.String(sqs.QueueAttributeNameAll)}, sqsMock.input.MessageAttributeNames)
+	h.Equals(t, queueURL, aws.StringValue(sqsMock.input.QueueUrl))
+	h.Equals(t, int64(10), aws.Int64Value(sqsMock.input.MaxNumberOfMessages))
+	h.Equals(t, visibilityPeriod, aws.Int64Value(sqsMock.input.VisibilityTimeout))
+	h.Equals(t, int64(20), aws.Int64Value(sqsMock.input.WaitTimeSeconds))
 }
 
 func TestMonitorKind(t *testing.T) {
